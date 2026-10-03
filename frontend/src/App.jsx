@@ -10,8 +10,8 @@ function App() {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   
-  // Estado leve apenas para os cards numéricos
-  const [leituraAtual, setLeituraAtual] = useState({ tempo: 0, adc: 2400 });
+  // 1. Atualizado: O estado agora guarda a 'forca' também
+  const [leituraAtual, setLeituraAtual] = useState({ tempo: 0, adc: 2481, forca: 0 });
 
   useEffect(() => {
     // Configuração visual do gráfico uPlot
@@ -33,8 +33,8 @@ function App() {
         { stroke: "#475569", grid: { stroke: "#334155" } }
       ],
       scales: {
-        // Mantém o eixo Y fixo para o gráfico não ficar "pulando"
-        y: { auto: false, range: [2000, 3500] } 
+        // Mantém o eixo Y fixo baseado na calibração (0kg = ~2481)
+        y: { auto: false, range: [2400, 3500] } 
       }
     };
 
@@ -42,36 +42,40 @@ function App() {
     const uplot = new uPlot(opts, [[], []], containerRef.current);
     chartRef.current = uplot;
 
-    // Buffers de memória na RAM (não disparam renderização do React)
+    // Buffers de memória na RAM
     let dadosX = [];
     let dadosY = [];
+    let dadosForca = []; // Novo array para guardar o histórico da força
     const JANELA_PONTOS = 5000; // Mantém os últimos 5 segundos na tela (5000 pontos a 1000Hz)
 
-    // 1. RECEPÇÃO A 1000 HZ: Apenas guarda os dados nos arrays
+    // RECEPÇÃO A 1000 HZ
     socket.on('dados_forca', (dados) => {
-      dadosX.push(dados.tempo / 1000); // Converte para segundos no eixo X
+      dadosX.push(dados.tempo / 1000); 
       dadosY.push(dados.adc);
+      dadosForca.push(dados.forca); // Pega a força exata enviada pelo ESP32/Node.js
 
       // Remove os pontos mais antigos para o gráfico deslizar
       if (dadosX.length > JANELA_PONTOS) {
         dadosX.shift();
         dadosY.shift();
+        dadosForca.shift();
       }
     });
 
-    // 2. ATUALIZAÇÃO DA TELA A 30 FPS: Não trava o navegador
+    // ATUALIZAÇÃO DA TELA A 30 FPS
     const renderTimer = setInterval(() => {
       if (dadosX.length > 0) {
-        // Joga o lote de dados para o WebGL desenhar
+        // Desenha o gráfico (usando apenas Tempo e ADC)
         uplot.setData([dadosX, dadosY]);
         
         // Atualiza os números nos cards da interface
         setLeituraAtual({
           tempo: dadosX[dadosX.length - 1],
-          adc: dadosY[dadosY.length - 1]
+          adc: dadosY[dadosY.length - 1],
+          forca: dadosForca[dadosForca.length - 1]
         });
       }
-    }, 33); // 33ms = ~30 quadros por segundo
+    }, 33); 
 
     // Tratamento para redimensionamento da janela
     const resizeObserver = new ResizeObserver(() => {
@@ -90,8 +94,8 @@ function App() {
     };
   }, []);
 
-  // Cálculo em tempo real da Força (Baseado no zero em 2400 e ganho de 20 pontos/kg)
-  const forcaKg = Math.max(0, (leituraAtual.adc - 2400) / 20).toFixed(2);
+  // Pega a força calculada matematicamente pelo ESP32 e garante 2 casas decimais
+  const forcaExibicao = Number(leituraAtual.forca).toFixed(2);
 
   return (
     <div className="dashboard">
@@ -108,7 +112,7 @@ function App() {
         <div className="metric-card">
           <h3>Força Estimada</h3>
           <div className="value" style={{ color: '#4ade80' }}>
-            {forcaKg} <span style={{ fontSize: '1.2rem' }}>kg</span>
+            {forcaExibicao} <span style={{ fontSize: '1.2rem' }}>kg</span>
           </div>
         </div>
 
